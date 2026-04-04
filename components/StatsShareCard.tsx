@@ -46,6 +46,7 @@ export type StatsShareCardProps = {
     mode?: 'metal' | 'black' | 'white' | 'custom';
     imageUrl?: string | null;
   };
+  exportMode?: boolean;
 };
 
 const LIME = '#e1ff2b';
@@ -112,11 +113,12 @@ const StatCell: React.FC<{
   </div>
 );
 
-export const StatsShareCard: React.FC<StatsShareCardProps> = ({ data, background }) => {
+export const StatsShareCard: React.FC<StatsShareCardProps> = ({ data, background, exportMode = false }) => {
   const playerName = safeUpper(data.player.name || 'PLAYER');
   const playerNameParts = playerName.split(/\s+/).filter(Boolean);
   const playerFirstName = playerNameParts[0] || 'PLAYER';
   const playerSurname = playerNameParts.length > 1 ? playerNameParts.slice(1).join(' ') : '';
+  const longestNamePartLength = playerNameParts.reduce((max, part) => Math.max(max, part.length), 0);
   const teamLabel = safeUpper(data.player.teamLabel || 'TEAM');
   const seasonLabel = safeUpper(data.player.seasonLabel || '');
   const jerseyNumber = data.player.jerseyNumber ? `#${data.player.jerseyNumber}` : '';
@@ -172,12 +174,40 @@ export const StatsShareCard: React.FC<StatsShareCardProps> = ({ data, background
     seasonRows.push({ key: `season-missing-${seasonRows.length}`, label: '-', value: '-' });
   }
 
-  const dynamicNameSize = playerName.length > 22 ? 54 : playerName.length > 18 ? 62 : playerName.length > 14 ? 70 : 78;
+  const useStackedNameLayout = exportMode
+    ? playerName.length > 16 || longestNamePartLength > 10
+    : playerName.length > 18 || longestNamePartLength > 11;
+  const dynamicNameSize = exportMode
+    ? playerName.length > 32 || longestNamePartLength > 18
+      ? 34
+      : playerName.length > 28 || longestNamePartLength > 16
+      ? 38
+      : playerName.length > 24 || longestNamePartLength > 14
+      ? 42
+      : playerName.length > 20 || longestNamePartLength > 12
+      ? 48
+      : playerName.length > 16 || longestNamePartLength > 10
+      ? 54
+      : playerName.length > 12
+      ? 64
+      : 78
+    : playerName.length > 30 || longestNamePartLength > 16
+      ? 42
+      : playerName.length > 26 || longestNamePartLength > 14
+      ? 48
+      : playerName.length > 22 || longestNamePartLength > 12
+      ? 54
+      : playerName.length > 18
+      ? 60
+      : playerName.length > 14
+      ? 70
+      : 78;
   const recordText = normalizeRecordText(data.seasonSummary.recordText);
   const backgroundMode = background?.mode || 'metal';
   const customImageUrl = background?.imageUrl || null;
   const isWhiteMode = backgroundMode === 'white';
   const isCustomMode = backgroundMode === 'custom' && !!customImageUrl;
+  const avatarSrc = data.player.avatarUrl || '/player-placeholder.svg';
 
   const rootBackgroundImage = isCustomMode
     ? `url("${customImageUrl}")`
@@ -290,16 +320,31 @@ export const StatsShareCard: React.FC<StatsShareCardProps> = ({ data, background
           LAST GAME STATS
         </div>
         <div
-          className="mt-2 leading-[0.82] uppercase block px-6 overflow-hidden text-ellipsis"
-          style={{ fontFamily: NAME_BOLD_FONT, fontWeight: 700, fontSize: dynamicNameSize, whiteSpace: 'nowrap', color: mainTextColor }}
+          className="mt-2 uppercase block px-6 overflow-hidden"
+          style={{
+            fontFamily: NAME_BOLD_FONT,
+            fontWeight: 700,
+            fontSize: dynamicNameSize,
+            color: mainTextColor,
+            lineHeight: useStackedNameLayout ? (exportMode ? 0.88 : 0.9) : 0.82,
+            whiteSpace: useStackedNameLayout ? 'normal' : 'nowrap',
+          }}
         >
-          <span>{playerFirstName}</span>
+          <span
+            style={{
+              display: useStackedNameLayout ? 'block' : 'inline',
+            }}
+          >
+            {playerFirstName}
+          </span>
           {playerSurname ? (
             <span
               style={{
                 fontFamily: NAME_ITALIC_FONT,
                 fontStyle: 'italic',
-                marginLeft: 10,
+                display: useStackedNameLayout ? 'block' : 'inline',
+                marginLeft: useStackedNameLayout ? 0 : 10,
+                marginTop: useStackedNameLayout ? 2 : 0,
               }}
             >
               {playerSurname}
@@ -361,21 +406,33 @@ export const StatsShareCard: React.FC<StatsShareCardProps> = ({ data, background
                 : '0 0 0 2px rgba(0,0,0,0.6), 0 0 24px rgba(225,255,43,0.24)',
             }}
           />
-          <div
-            className="w-[250px] h-[250px] rounded-full overflow-hidden"
-            style={{ border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(0,0,0,0.42)' }}
-          >
-            <img
-              src={data.player.avatarUrl || '/player-placeholder.svg'}
-              alt="Player"
-              data-share-avatar="true"
-              crossOrigin="anonymous"
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                (e.currentTarget as HTMLImageElement).src = '/player-placeholder.svg';
-              }}
-            />
-          </div>
+          {exportMode ? (
+            <div className="w-[250px] h-[250px]" data-share-avatar-shell="true">
+              <img
+                src={avatarSrc}
+                alt="Player"
+                data-share-avatar="true"
+                className="block w-full h-full object-cover"
+                style={{ background: 'transparent' }}
+              />
+            </div>
+          ) : (
+            <div
+              className="w-[250px] h-[250px] rounded-full overflow-hidden"
+              style={{ border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(0,0,0,0.42)' }}
+            >
+              <img
+                src={avatarSrc}
+                alt="Player"
+                data-share-avatar="true"
+                crossOrigin="anonymous"
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).src = '/player-placeholder.svg';
+                }}
+              />
+            </div>
+          )}
         </div>
       </div>
 

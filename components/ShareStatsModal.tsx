@@ -38,6 +38,14 @@ const blobToDataUrl = async (blob: Blob) =>
     reader.readAsDataURL(blob);
   });
 
+const canvasToBlob = async (canvas: HTMLCanvasElement) =>
+  await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error('Unable to produce image blob.'));
+    }, 'image/png');
+  });
+
 const isRenderableImageDataUrl = async (value: string) =>
   await new Promise<boolean>((resolve) => {
     const img = new Image();
@@ -69,6 +77,127 @@ const toSafePath = (value: string) => {
   const normalized = decoded.replace(/^\/+/, '');
   if (!normalized) return '';
   return normalized;
+};
+
+const svgToDataUrl = (svg: string) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+
+const buildInitialsAvatarDataUrl = (name?: string | null) => {
+  const normalized = String(name || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const initials = (normalized[0]?.[0] || 'P').toUpperCase();
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+      <defs>
+        <radialGradient id="bg" cx="50%" cy="40%" r="70%">
+          <stop offset="0%" stop-color="#ff8d00" />
+          <stop offset="100%" stop-color="#f97316" />
+        </radialGradient>
+      </defs>
+      <rect width="512" height="512" rx="256" fill="url(#bg)" />
+      <text
+        x="50%"
+        y="50%"
+        dominant-baseline="central"
+        text-anchor="middle"
+        fill="#ffffff"
+        font-family="Arial, Helvetica, sans-serif"
+        font-size="220"
+        font-weight="700"
+      >${initials}</text>
+    </svg>
+  `;
+  return svgToDataUrl(svg);
+};
+
+const loadImageElement = async (src: string) =>
+  await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Failed to load image.'));
+    img.src = src;
+  });
+
+const buildCircularAvatarDataUrl = async (src: string, fallbackSrc: string) => {
+  const canvas = document.createElement('canvas');
+  const size = 512;
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return fallbackSrc;
+
+  ctx.clearRect(0, 0, size, size);
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+  ctx.closePath();
+  ctx.clip();
+
+  try {
+    const img = await loadImageElement(src);
+    const imgRatio = img.naturalWidth / img.naturalHeight;
+    const targetRatio = 1;
+    let sx = 0;
+    let sy = 0;
+    let sw = img.naturalWidth;
+    let sh = img.naturalHeight;
+
+    if (imgRatio > targetRatio) {
+      sw = img.naturalHeight * targetRatio;
+      sx = (img.naturalWidth - sw) / 2;
+    } else if (imgRatio < targetRatio) {
+      sh = img.naturalWidth / targetRatio;
+      sy = (img.naturalHeight - sh) / 2;
+    }
+
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, size, size);
+  } catch {
+    ctx.restore();
+    return fallbackSrc;
+  }
+
+  ctx.restore();
+  return canvas.toDataURL('image/png');
+};
+
+const compositeAvatarOntoCardBlob = async (cardBlob: Blob, avatarSrc: string, cardWidth: number, cardHeight: number) => {
+  const baseImage = await loadImageElement(await blobToDataUrl(cardBlob));
+  const avatarImage = await loadImageElement(avatarSrc);
+  const canvas = document.createElement('canvas');
+  const outputWidth = Math.max(baseImage.naturalWidth || cardWidth, cardWidth);
+  const outputHeight = Math.max(baseImage.naturalHeight || cardHeight, cardHeight);
+  const scaleX = outputWidth / cardWidth;
+  const scaleY = outputHeight / cardHeight;
+  canvas.width = outputWidth;
+  canvas.height = outputHeight;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Unable to access canvas context.');
+
+  ctx.drawImage(baseImage, 0, 0, outputWidth, outputHeight);
+
+  const avatarSize = 250 * Math.min(scaleX, scaleY);
+  const avatarX = ((cardWidth - 250) / 2) * scaleX;
+  const avatarY = 326 * scaleY;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2, 0, Math.PI * 2);
+  ctx.closePath();
+  ctx.clip();
+  ctx.drawImage(avatarImage, avatarX, avatarY, avatarSize, avatarSize);
+  ctx.restore();
+
+  return await canvasToBlob(canvas);
+};
+
+const isIOSWebKit = () => {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  const platform = navigator.platform || '';
+  const touchMac = platform === 'MacIntel' && (navigator as any).maxTouchPoints > 1;
+  return /iP(hone|ad|od)/i.test(ua) || touchMac;
 };
 
 const extractSupabaseStorageRef = (source?: string | null): { bucket: string; path: string } | null => {
@@ -201,6 +330,7 @@ export const ShareStatsModal: React.FC<ShareStatsModalProps> = ({ open, onClose,
   const [bgMode, setBgMode] = useState<'metal' | 'black' | 'white' | 'custom'>('metal');
   const [customBackgroundUrl, setCustomBackgroundUrl] = useState<string | null>(null);
   const [embeddedAvatarUrl, setEmbeddedAvatarUrl] = useState<string | null>(null);
+  const [exportAvatarUrl, setExportAvatarUrl] = useState<string | null>(null);
 
   const CARD_W = 540;
   const CARD_H = 960;
@@ -233,6 +363,9 @@ export const ShareStatsModal: React.FC<ShareStatsModalProps> = ({ open, onClose,
     return `courtsight-stats-${base}.png`;
   }, [data?.player?.name]);
 
+  const exportAvatarFallback = useMemo(() => buildInitialsAvatarDataUrl(data?.player?.name), [data?.player?.name]);
+  const shouldUseIosCompositeExport = useMemo(() => isIOSWebKit(), []);
+
   const previewData = useMemo<ShareCardData>(
     () => ({
       ...data,
@@ -249,10 +382,10 @@ export const ShareStatsModal: React.FC<ShareStatsModalProps> = ({ open, onClose,
       ...data,
       player: {
         ...data.player,
-        avatarUrl: embeddedAvatarUrl || data.player.avatarUrl || '/player-placeholder.svg',
+        avatarUrl: exportAvatarUrl || embeddedAvatarUrl || data.player.avatarUrl || exportAvatarFallback,
       },
     }),
-    [data, embeddedAvatarUrl]
+    [data, embeddedAvatarUrl, exportAvatarUrl, exportAvatarFallback]
   );
 
   const cardBackground = useMemo(
@@ -272,6 +405,7 @@ export const ShareStatsModal: React.FC<ShareStatsModalProps> = ({ open, onClose,
     if (!open) return;
     setBgMode('metal');
     setCustomBackgroundUrl(null);
+    setExportAvatarUrl(null);
   }, [open]);
 
   useEffect(() => {
@@ -280,7 +414,7 @@ export const ShareStatsModal: React.FC<ShareStatsModalProps> = ({ open, onClose,
     const embedAvatar = async () => {
       const source = (data?.player?.avatarUrl || '').trim();
       if (!source) {
-        if (active) setEmbeddedAvatarUrl('/player-placeholder.svg');
+        if (active) setEmbeddedAvatarUrl(exportAvatarFallback);
         return;
       }
       if (source.startsWith('data:')) {
@@ -294,7 +428,7 @@ export const ShareStatsModal: React.FC<ShareStatsModalProps> = ({ open, onClose,
         setEmbeddedAvatarUrl(dataUrl);
         return;
       }
-      setEmbeddedAvatarUrl(null);
+      setEmbeddedAvatarUrl(exportAvatarFallback);
     };
 
     if (open) {
@@ -304,7 +438,27 @@ export const ShareStatsModal: React.FC<ShareStatsModalProps> = ({ open, onClose,
     return () => {
       active = false;
     };
-  }, [open, data?.player?.avatarUrl]);
+  }, [open, data?.player?.avatarUrl, exportAvatarFallback]);
+
+  useEffect(() => {
+    let active = true;
+
+    const prepareExportAvatar = async () => {
+      if (!open) return;
+      const source = (embeddedAvatarUrl || data?.player?.avatarUrl || exportAvatarFallback).trim();
+      if (!source) {
+        if (active) setExportAvatarUrl(exportAvatarFallback);
+        return;
+      }
+      const circular = await buildCircularAvatarDataUrl(source, exportAvatarFallback);
+      if (active) setExportAvatarUrl(circular || exportAvatarFallback);
+    };
+
+    prepareExportAvatar();
+    return () => {
+      active = false;
+    };
+  }, [open, embeddedAvatarUrl, data?.player?.avatarUrl, exportAvatarFallback]);
 
   useEffect(() => {
     if (!open) return;
@@ -343,7 +497,7 @@ export const ShareStatsModal: React.FC<ShareStatsModalProps> = ({ open, onClose,
   }, [open]);
 
   const ensureEmbeddedAvatarForExport = async () => {
-    const current = (embeddedAvatarUrl || '').trim();
+    const current = (exportAvatarUrl || embeddedAvatarUrl || '').trim();
     if (current.startsWith('data:')) return current;
 
     const previewAvatar = previewCardRef.current?.querySelector('img[data-share-avatar="true"]') as HTMLImageElement | null;
@@ -371,8 +525,10 @@ export const ShareStatsModal: React.FC<ShareStatsModalProps> = ({ open, onClose,
             ctx.drawImage(previewAvatar, 0, 0);
             const fromPreview = canvas.toDataURL('image/png');
             if (fromPreview) {
+              const circular = await buildCircularAvatarDataUrl(fromPreview, exportAvatarFallback);
               setEmbeddedAvatarUrl(fromPreview);
-              return fromPreview;
+              setExportAvatarUrl(circular);
+              return circular;
             }
           }
         } catch {
@@ -383,7 +539,7 @@ export const ShareStatsModal: React.FC<ShareStatsModalProps> = ({ open, onClose,
     }
 
     const source = (data?.player?.avatarUrl || '').trim();
-    if (!source) return '/player-placeholder.svg';
+    if (!source) return exportAvatarFallback;
     if (source.startsWith('data:')) {
       setEmbeddedAvatarUrl(source);
       return source;
@@ -392,12 +548,16 @@ export const ShareStatsModal: React.FC<ShareStatsModalProps> = ({ open, onClose,
     const resolvedDataUrl = await resolveAvatarDataUrl(source, previewAvatar);
     if (resolvedDataUrl) {
       setEmbeddedAvatarUrl(resolvedDataUrl);
-      return resolvedDataUrl;
+      const circular = await buildCircularAvatarDataUrl(resolvedDataUrl, exportAvatarFallback);
+      setExportAvatarUrl(circular);
+      return circular;
     }
 
     const liveSrc = (previewAvatar?.currentSrc || previewAvatar?.src || '').trim();
-    if (liveSrc) return liveSrc;
-    return '/player-placeholder.svg';
+    if (liveSrc && !/^https?:\/\/ui-avatars\.com\//i.test(liveSrc)) return liveSrc;
+    setEmbeddedAvatarUrl(exportAvatarFallback);
+    setExportAvatarUrl(exportAvatarFallback);
+    return exportAvatarFallback;
   };
 
   const captureBlob = async () => {
@@ -486,7 +646,7 @@ export const ShareStatsModal: React.FC<ShareStatsModalProps> = ({ open, onClose,
     let fontEmbedCSS = fontEmbedCssRef.current;
     if (!fontEmbedCSS) {
       try {
-        fontEmbedCSS = await getFontEmbedCSS(targetNode, { preferredFontFormat: 'woff2' });
+        fontEmbedCSS = await getFontEmbedCSS(targetNode);
         fontEmbedCssRef.current = fontEmbedCSS;
       } catch {
         // fallback to runtime font loading if embed CSS fails
@@ -502,7 +662,6 @@ export const ShareStatsModal: React.FC<ShareStatsModalProps> = ({ open, onClose,
       includeQueryParams: true,
       pixelRatio: 3,
       backgroundColor: '#080808',
-      preferredFontFormat: 'woff2',
       skipFonts: false,
       fontEmbedCSS: fontEmbedCSS || undefined,
       width: CARD_W,
@@ -513,6 +672,16 @@ export const ShareStatsModal: React.FC<ShareStatsModalProps> = ({ open, onClose,
       },
     });
     if (!blob) throw new Error('Unable to capture image.');
+    if (shouldUseIosCompositeExport) {
+      const avatarForComposite = (exportAvatarUrl || exportAvatarFallback).trim();
+      if (avatarForComposite) {
+        try {
+          return await compositeAvatarOntoCardBlob(blob, avatarForComposite, CARD_W, CARD_H);
+        } catch {
+          return blob;
+        }
+      }
+    }
     return blob;
   };
 
@@ -824,16 +993,19 @@ export const ShareStatsModal: React.FC<ShareStatsModalProps> = ({ open, onClose,
       <div
         style={{
           position: 'fixed',
-          left: -100000,
+          left: 0,
           top: 0,
           width: CARD_W,
           height: CARD_H,
           opacity: 0,
           pointerEvents: 'none',
+          transform: 'translateX(-200vw)',
+          transformOrigin: 'top left',
+          overflow: 'hidden',
         }}
       >
         <div ref={exportRef}>
-          <StatsShareCard data={exportData} background={cardBackground} />
+          <StatsShareCard data={exportData} background={cardBackground} exportMode />
         </div>
       </div>
     </div>

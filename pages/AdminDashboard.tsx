@@ -7363,6 +7363,11 @@ const BoxScoreEditor: React.FC<BoxScoreEditorProps> = ({ game, teams, onClose, o
   const [teamEditorBannerFile, setTeamEditorBannerFile] = useState<File | null>(null);
   const [teamEditorLogoPreview, setTeamEditorLogoPreview] = useState<string>('');
   const [teamEditorBannerPreview, setTeamEditorBannerPreview] = useState<string>('');
+  const [teamEditorRosterWarning, setTeamEditorRosterWarning] = useState<{
+    title: string;
+    description: string;
+    body: string;
+  } | null>(null);
 
   const [editingPlayerQuick, setEditingPlayerQuick] = useState<{
     playerId: string;
