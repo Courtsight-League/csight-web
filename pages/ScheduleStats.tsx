@@ -17,6 +17,7 @@ const ScheduleStats: React.FC = () => {
   const tabParam = (searchParams.get('tab') || 'schedule').toUpperCase() as Tab;
   const rawDivisionParam = searchParams.get('division');
   const divisionParam = rawDivisionParam ? rawDivisionParam.toUpperCase() : '';
+  const teamParam = searchParams.get('team') || '';
   const [selectedSeasonId, setSelectedSeasonId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>(
     ['SCHEDULE', 'SCORES', 'STANDINGS', 'TEAMS', 'LEADERS'].includes(tabParam)
@@ -24,6 +25,7 @@ const ScheduleStats: React.FC = () => {
       : 'SCHEDULE'
   );
   const [divisionFilter, setDivisionFilter] = useState<string>(divisionParam);
+  const [teamFilter, setTeamFilter] = useState<string>(teamParam);
 
   const [seasons, setSeasons] = useState<any[]>([]);
   const [teams, setTeams] = useState<any[]>([]);
@@ -175,9 +177,14 @@ const ScheduleStats: React.FC = () => {
     } else {
       next.delete('division');
     }
+    if (teamFilter) {
+      next.set('team', teamFilter);
+    } else {
+      next.delete('team');
+    }
     setSearchParams(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, selectedSeasonId, divisionFilter]);
+  }, [activeTab, selectedSeasonId, divisionFilter, teamFilter]);
   
   // Filter Data
   const seasonGames = useMemo(
@@ -208,6 +215,16 @@ const ScheduleStats: React.FC = () => {
     [divisionFilter, seasonTeams]
   );
   const divisionTeamIds = useMemo(() => new Set(divisionTeams.map((t) => t.id)), [divisionTeams]);
+  const scheduleTeamOptions = useMemo(
+    () =>
+      [...divisionTeams]
+        .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+        .map((team) => ({
+          id: team.id,
+          name: team.name || 'Team',
+        })),
+    [divisionTeams]
+  );
   const toNumber = (value: any): number | null => {
     if (value === null || value === undefined) return null;
     if (typeof value === 'number') return Number.isFinite(value) ? value : null;
@@ -250,12 +267,28 @@ const ScheduleStats: React.FC = () => {
       return current && divisionOptions.includes(current) ? current : '';
     });
   }, [divisionParam, divisionOptions]);
+
+  useEffect(() => {
+    setTeamFilter((current) => {
+      if (!scheduleTeamOptions.length) return '';
+      if (teamParam && scheduleTeamOptions.some((team) => team.id === teamParam)) return teamParam;
+      return current && scheduleTeamOptions.some((team) => team.id === current) ? current : '';
+    });
+  }, [teamParam, scheduleTeamOptions]);
   
   const scheduledGames = useMemo(() => 
     divisionGames
+      .filter((g) =>
+        teamFilter ? g.homeTeamId === teamFilter || g.awayTeamId === teamFilter : true
+      )
       .filter(g => g.status === 'SCHEDULED')
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()), 
-  [divisionGames]);
+  [divisionGames, teamFilter]);
+
+  const selectedTeamName = useMemo(
+    () => scheduleTeamOptions.find((team) => team.id === teamFilter)?.name || 'Team',
+    [scheduleTeamOptions, teamFilter]
+  );
 
   const completedGames = useMemo(() => 
     divisionGames
@@ -907,6 +940,24 @@ const ScheduleStats: React.FC = () => {
               </select>
               <Filter className="absolute dropdown-icon-spacing right-3 top-1/2 transform -translate-y-1/2 text-brand-grey w-4 h-4 pointer-events-none" />
             </div>
+            {activeTab === 'SCHEDULE' && (
+              <div className="relative">
+                <select
+                  value={teamFilter}
+                  onChange={(e) => setTeamFilter(e.target.value)}
+                  className="appearance-none bg-brand-dark border border-white/20 text-white py-2 pl-4 pr-8 rounded font-sports uppercase tracking-wider focus:outline-none focus:border-brand-lime disabled:opacity-50"
+                  disabled={!scheduleTeamOptions.length}
+                >
+                  <option value="">All Teams</option>
+                  {scheduleTeamOptions.map((team) => (
+                    <option key={team.id} value={team.id}>
+                      {team.name}
+                    </option>
+                  ))}
+                </select>
+                <Filter className="absolute dropdown-icon-spacing right-3 top-1/2 transform -translate-y-1/2 text-brand-grey w-4 h-4 pointer-events-none" />
+              </div>
+            )}
           </div>
         </div>
 
@@ -939,7 +990,7 @@ const ScheduleStats: React.FC = () => {
                    <GameList games={scheduledGames} teams={seasonTeams} showScores={false} centerVs boxScoreReturnLabel="Stats" />
                ) : (
                  <div className="text-center py-12 text-gray-500 bg-brand-dark rounded-lg border border-white/5 border-dashed">
-                  No scheduled games found for this season ({divisionLabel}).
+                  No scheduled games found for this season ({teamFilter ? `${selectedTeamName} • ${divisionLabel}` : divisionLabel}).
                  </div>
                )}
              </div>

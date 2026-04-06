@@ -310,6 +310,37 @@ const formatTrophyDate = (value?: string) => {
   }
 };
 
+const getFixedScheduleDateTimeParts = (value?: string | null) => {
+  if (!value) return { date: '', time: '' };
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return { date: '', time: '' };
+  const iso = parsed.toISOString();
+  return {
+    date: iso.slice(0, 10),
+    time: iso.slice(11, 16),
+  };
+};
+
+const formatScheduleDateLabel = (
+  value?: string | null,
+  options: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' }
+) => {
+  if (!value) return '';
+  const dateOnlyMatch = String(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const parsed = dateOnlyMatch
+    ? new Date(
+        Number(dateOnlyMatch[1]),
+        Number(dateOnlyMatch[2]) - 1,
+        Number(dateOnlyMatch[3]),
+        12,
+        0,
+        0
+      )
+    : new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value || '');
+  return parsed.toLocaleDateString('en-US', options);
+};
+
 const getTierColor = (tier: TrophyTierName) => {
   switch (tier) {
     case 'Bronze':
@@ -1519,10 +1550,6 @@ const MySeason: React.FC = () => {
             }
 
             const now = new Date();
-            const formatGameTime = (date?: Date) =>
-              date
-                ? date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-                : '';
             const mappedGames = (gameRows as any[]).map((g) => {
               const playerTeamId = effectiveTeamIds.includes(g.home_team_id)
                 ? g.home_team_id
@@ -1537,13 +1564,22 @@ const MySeason: React.FC = () => {
               };
 
               let dt: Date | null = null;
+              let fixedDate = '';
+              let fixedTime = '';
               if (g.game_datetime) {
                 const d = new Date(g.game_datetime);
                 dt = Number.isNaN(d.getTime()) ? null : d;
+                if (dt) {
+                  const parts = getFixedScheduleDateTimeParts(g.game_datetime);
+                  fixedDate = parts.date;
+                  fixedTime = parts.time;
+                }
               } else if (g.date) {
                 const iso = g.time ? `${g.date}T${g.time}` : `${g.date}`;
                 const d = new Date(iso);
                 dt = Number.isNaN(d.getTime()) ? null : d;
+                fixedDate = g.date || '';
+                fixedTime = g.time || '';
               }
               if (g.id) {
                 gameSeasonLookup.set(g.id, g.season_id || null);
@@ -1553,13 +1589,13 @@ const MySeason: React.FC = () => {
                 gameDetailsById.set(String(g.id), {
                   ...g,
                   rawDate: dt,
-                  date: g.date || (dt ? dt.toISOString().slice(0, 10) : ''),
-                  time: g.time || (dt ? formatGameTime(dt) : ''),
+                  date: g.date || fixedDate,
+                  time: g.time || fixedTime,
                 });
               }
 
-              const displayDate = g.date || (dt ? dt.toISOString().slice(0, 10) : '');
-              const displayTime = g.time || (dt ? formatGameTime(dt) : '');
+              const displayDate = g.date || fixedDate;
+              const displayTime = g.time || fixedTime;
               return {
                 id: g.id,
                 date: displayDate,
@@ -1657,11 +1693,16 @@ const MySeason: React.FC = () => {
             gameSeasonLookup.set(game.id, game.season_id || null);
             let resolvedDate: Date | null = null;
             let dateValue = '';
+            let fixedDate = '';
+            let fixedTime = '';
             if (game.game_datetime) {
               const dt = new Date(game.game_datetime);
               if (!Number.isNaN(dt.getTime())) {
                 resolvedDate = dt;
                 dateValue = dt.toISOString();
+                const parts = getFixedScheduleDateTimeParts(game.game_datetime);
+                fixedDate = parts.date;
+                fixedTime = parts.time;
               }
             }
             if (!dateValue && game.date) {
@@ -1671,6 +1712,8 @@ const MySeason: React.FC = () => {
                 resolvedDate = dt;
                 dateValue = dt.toISOString();
               }
+              fixedDate = game.date || '';
+              fixedTime = game.time || '';
             }
             if (dateValue) {
               trophyGameDateMap.set(game.id, dateValue);
@@ -1678,12 +1721,8 @@ const MySeason: React.FC = () => {
             gameDetailsById.set(String(game.id), {
               ...game,
               rawDate: resolvedDate,
-              date: game.date || (resolvedDate ? resolvedDate.toISOString().slice(0, 10) : ''),
-              time:
-                game.time ||
-                (resolvedDate
-                  ? resolvedDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-                  : ''),
+              date: game.date || fixedDate,
+              time: game.time || fixedTime,
             });
           });
         }
@@ -1910,11 +1949,9 @@ const MySeason: React.FC = () => {
   const shareGameOptions = useMemo(
     () =>
       shareGamesForTeam.map((game) => {
-        const gameDate = game.date ? new Date(game.date) : null;
-        const isValidDate = gameDate ? !Number.isNaN(gameDate.getTime()) : false;
-        const dateLabel = isValidDate
-          ? gameDate!.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-          : game.date || 'Date TBD';
+        const dateLabel = game.date
+          ? formatScheduleDateLabel(game.date, { month: 'short', day: 'numeric' })
+          : 'Date TBD';
         const timeLabel = game.time ? ` @ ${game.time}` : '';
         return {
           id: game.id,
@@ -2535,7 +2572,7 @@ const MySeason: React.FC = () => {
                       </div>
                    </div>
                    <div className="bg-black/40 rounded p-3 text-center">
-                      <div className="text-white font-bold text-lg mb-1">{new Date(nextGame.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} @ {nextGame.time}</div>
+                      <div className="text-white font-bold text-lg mb-1">{formatScheduleDateLabel(nextGame.date, { month: 'short', day: 'numeric' })} @ {nextGame.time}</div>
                       <div className="text-gray-400 text-xs flex items-center justify-center gap-1">
                         <MapPin size={12} /> {nextGame.location}
                       </div>
@@ -2862,7 +2899,7 @@ const MySeason: React.FC = () => {
                       <tr key={log.id} className="hover:bg-white/5 transition-colors">
                         <td className="p-3 font-mono text-white">
                           {log.date
-                            ? new Date(log.date).toLocaleDateString('en-US', {
+                            ? formatScheduleDateLabel(log.date, {
                                 month: 'short',
                                 day: 'numeric',
                                 year: 'numeric',

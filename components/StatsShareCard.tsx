@@ -203,6 +203,9 @@ export const StatsShareCard: React.FC<StatsShareCardProps> = ({ data, background
       ? 70
       : 78;
   const recordText = normalizeRecordText(data.seasonSummary.recordText);
+  const recordLabelSize = exportMode ? 11 : 12;
+  const recordValueSize = exportMode ? 23 : 27;
+  const recordGap = exportMode ? 6 : 8;
   const backgroundMode = background?.mode || 'metal';
   const customImageUrl = background?.imageUrl || null;
   const isWhiteMode = backgroundMode === 'white';
@@ -525,23 +528,25 @@ export const StatsShareCard: React.FC<StatsShareCardProps> = ({ data, background
           ))}
         </div>
         <div className="px-4 pt-[9px] pb-[9px] border-t text-center" style={{ borderColor: isWhiteMode ? 'rgba(15,23,42,0.12)' : 'rgba(255,255,255,0.1)' }}>
-          <div className="whitespace-nowrap leading-none">
+          <div className="inline-flex items-end justify-center whitespace-nowrap leading-none" style={{ gap: recordGap }}>
             <span
-              className="text-[12px] uppercase tracking-[0.2em]"
+              className="uppercase tracking-[0.2em]"
               style={{
                 display: 'inline-block',
-                marginRight: 8,
+                fontSize: recordLabelSize,
                 fontFamily: LABEL_FONT,
                 fontWeight: 700,
+                lineHeight: 1.15,
                 color: isWhiteMode ? 'rgba(15,23,42,0.56)' : 'rgba(255,255,255,0.56)',
               }}
             >
               RECORD
             </span>
             <span
-              className="text-[27px] whitespace-nowrap"
+              className="whitespace-nowrap"
               style={{
                 display: 'inline-block',
+                fontSize: recordValueSize,
                 lineHeight: 1,
                 fontFamily: HEAD_FONT,
                 fontWeight: 700,

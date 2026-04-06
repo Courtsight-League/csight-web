@@ -131,6 +131,7 @@ type PlayerManagementPlayerRow = {
   waiverAccepted: boolean;
   waiverAcceptedAt: string | null;
   waiverDocumentPath: string | null;
+  legacyInferredApproval: boolean;
 };
 
 type ClaimEmailTarget = {
@@ -982,9 +983,10 @@ const PlayerManagement: React.FC<PlayerManagementProps> = ({
       const paymentStatus = profile?.payment_status || latest.payment_status || null;
       const playerEmailRaw = (latest as any)?.email || (latest as any)?.email_address || null;
       const playerPhone = (latest as any)?.phone || null;
-      const waiverAccepted = !!latest.waiver_accepted;
-      const waiverAcceptedAt = latest.waiver_accepted_at || null;
-      const waiverDocumentPath = latest.waiver_document_path || null;
+      const legacyInferredApproval = !latest.waiver_accepted && !!resolvedUserId;
+      const waiverAccepted = !!latest.waiver_accepted || legacyInferredApproval;
+      const waiverAcceptedAt = latest.waiver_accepted_at || (waiverAccepted ? latest.created_at || null : null);
+      const waiverDocumentPath = latest.waiver_document_path || (legacyInferredApproval ? 'legacy-registration-flow' : null);
 
       return {
         playerId: latest.id,
@@ -1013,6 +1015,7 @@ const PlayerManagement: React.FC<PlayerManagementProps> = ({
         waiverAccepted,
         waiverAcceptedAt,
         waiverDocumentPath,
+        legacyInferredApproval,
       } as PlayerManagementPlayerRow;
     });
 
@@ -2382,6 +2385,11 @@ const PlayerManagement: React.FC<PlayerManagementProps> = ({
                             ? `Approved ${new Date(row.waiverAcceptedAt).toLocaleString()}`
                             : 'No waiver approval timestamp'}
                         </div>
+                        {row.legacyInferredApproval && (
+                          <div className="text-[11px] text-gray-500">
+                            Account-linked registration: waiver accepted inferred from linked user record.
+                          </div>
+                        )}
                       </div>
                     </td>
                     <td className="p-4">

@@ -588,13 +588,13 @@ const Home: React.FC = () => {
     return (
       <article
         key={key}
-        className="shrink-0 w-[min(84vw,360px)] sm:w-[320px] md:w-[360px] relative overflow-hidden rounded-2xl border border-white/10 bg-brand-dark/95 p-5 sm:p-6"
+        className="shrink-0 w-[min(84vw,360px)] sm:w-[320px] md:w-[360px] min-h-[312px] relative overflow-hidden rounded-2xl border border-white/10 bg-brand-dark/95 p-5 sm:p-6"
       >
         <div
           className="absolute inset-0 pointer-events-none"
           style={{ backgroundImage: getTestimonialGlow(item.accentColor) }}
         />
-        <div className="relative">
+        <div className="relative flex min-h-full flex-col">
           <div className="flex items-center justify-between mb-4">
             <div className="inline-flex items-center rounded-full border border-brand-lime/40 bg-brand-lime/10 px-3 py-1 text-[10px] uppercase tracking-[0.22em] text-brand-lime">
               Verified Player
@@ -602,7 +602,7 @@ const Home: React.FC = () => {
             <Quote size={20} className="text-brand-lime/80" />
           </div>
 
-          <p className="text-white text-sm sm:text-base leading-relaxed min-h-[112px]">
+          <p className="flex-1 text-white text-sm sm:text-base leading-relaxed min-h-[132px]">
             "{item.quote}"
           </p>
 

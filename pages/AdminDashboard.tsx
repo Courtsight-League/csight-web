@@ -5042,7 +5042,14 @@ const TeamsManager: React.FC<TeamsManagerProps> = ({
                                   <select 
                                       value={editTeamForm.division} 
                                       onChange={(e) => setEditTeamForm({...editTeamForm, division: e.target.value})}
-                                      className="w-full bg-black border border-white/20 rounded p-2 text-white focus:border-brand-lime focus:outline-none"
+                                      className="w-full appearance-none bg-black border border-white/20 rounded p-2 pr-12 text-white focus:border-brand-lime focus:outline-none"
+                                      style={{
+                                        backgroundImage:
+                                          "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23ffffff' d='M1.41 0L6 4.59 10.59 0 12 1.41 6 7.41 0 1.41z'/%3E%3C/svg%3E\")",
+                                        backgroundRepeat: 'no-repeat',
+                                        backgroundPosition: 'right 1rem center',
+                                        backgroundSize: '12px 8px',
+                                      }}
                                   >
                                       {(divisionOptions.filter((d) => d !== 'all').length ? divisionOptions.filter((d) => d !== 'all') : ['D1','D2','D3']).map((d) => (
                                         <option key={d} value={d}>
@@ -5282,7 +5289,14 @@ const TeamsManager: React.FC<TeamsManagerProps> = ({
                                           }
                                         }
                                       }}
-                                      className="w-full bg-black border border-white/20 rounded p-2 text-white text-sm focus:border-brand-lime focus:outline-none"
+                                      className="w-full appearance-none bg-black border border-white/20 rounded p-2 pr-12 text-white text-sm focus:border-brand-lime focus:outline-none"
+                                      style={{
+                                        backgroundImage:
+                                          "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23ffffff' d='M1.41 0L6 4.59 10.59 0 12 1.41 6 7.41 0 1.41z'/%3E%3C/svg%3E\")",
+                                        backgroundRepeat: 'no-repeat',
+                                        backgroundPosition: 'right 1rem center',
+                                        backgroundSize: '12px 8px',
+                                      }}
                                     >
                                       <option value="">Select existing user</option>
                                       {newPlayerUserOptions.map((option) => (
@@ -9275,7 +9289,14 @@ const BoxScoreEditor: React.FC<BoxScoreEditorProps> = ({ game, teams, onClose, o
                                   prev ? { ...prev, division: e.target.value } : prev
                                 )
                               }
-                              className="w-full bg-black border border-white/15 rounded-xl px-4 py-3 text-white focus:border-brand-lime focus:outline-none"
+                              className="w-full appearance-none bg-black border border-white/15 rounded-xl px-4 py-3 pr-12 text-white focus:border-brand-lime focus:outline-none"
+                              style={{
+                                backgroundImage:
+                                  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23ffffff' d='M1.41 0L6 4.59 10.59 0 12 1.41 6 7.41 0 1.41z'/%3E%3C/svg%3E\")",
+                                backgroundRepeat: 'no-repeat',
+                                backgroundPosition: 'right 1rem center',
+                                backgroundSize: '12px 8px',
+                              }}
                               disabled={teamEditorSaving}
                             >
                               <option value="">Select division</option>
