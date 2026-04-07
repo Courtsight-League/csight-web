@@ -48,6 +48,7 @@ import Cropper, { type Area } from 'react-easy-crop';
 import UnpaidPlayers from './UnpaidPlayers';
 import PlayerManagement from './PlayerManagement';
 import { supabaseAdmin } from '../services/supabaseAdminClient';
+import { createAdminUserViaServer } from '../services/adminUserApi';
 import { createNotifications } from '../services/notificationService';
 import { normalizeJerseyNumberInput } from '../utils/jerseyNumber';
 import { buildPlayerPortalUrl, sendPlayerClaimEmail } from '../services/playerClaimEmailService';
@@ -100,17 +101,6 @@ import { sortSeasonsNewestFirst } from '../utils/seasonOrdering';
 
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 
-const generateTempPassword = () => {
-  const charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()';
-  const length = 14;
-  let result = '';
-  for (let i = 0; i < length; i += 1) {
-    const idx = Math.floor(Math.random() * charset.length);
-    result += charset[idx];
-  }
-  return result;
-};
-
 const getAdminInviteRedirectUrl = () => {
   const configured = (import.meta.env.VITE_SITE_URL || '').trim();
   if (configured) {
@@ -147,16 +137,6 @@ const inviteAdminUserByEmail = async (
   } catch (err: any) {
     return { userId: null, error: err?.message || 'Invite failed.' };
   }
-};
-
-const sendAdminInviteEmail = async (email: string, redirect: string) => {
-  if (!supabaseAdmin) {
-    throw new Error('Missing admin service key for invites.');
-  }
-  const { error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
-    redirectTo: redirect,
-  });
-  if (error) throw error;
 };
 
 // --- COMPONENT: USER MANAGER ---
@@ -249,52 +229,18 @@ const UserManager: React.FC<{ currentUser: User | null }> = ({ currentUser }) =>
     setTempPasswordEmail(null);
     setAdding(true);
     try {
-      if (!supabaseAdmin) {
-        throw new Error('Missing admin service key for user creation.');
-      }
-
       const displayName = newAdmin.displayName.trim() || normalizedEmail;
-      const tempPass = generateTempPassword();
-      const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
+      const created = await createAdminUserViaServer({
         email: normalizedEmail,
-        password: tempPass,
-        email_confirm: false,
-        user_metadata: {
-          full_name: displayName,
-          temporary_password: tempPass,
-        },
-      });
-      if (createErr) throw createErr;
-
-      const redirectUrl = `${window.location.origin}/auth/callback?next=/reset-password`;
-      await sendAdminInviteEmail(normalizedEmail, redirectUrl);
-
-      
-      const insertPayload = {
-        user_id: created?.user?.id ?? null,
-        email: normalizedEmail,
-        display_name: displayName,
+        displayName,
         role: newAdmin.role,
-      };
-      const { error: err } = await supabase.from('admin_users').insert(insertPayload);
-      if (err) throw err;
+      });
 
-      if (supabaseAdmin && insertPayload.user_id) {
-        await supabaseAdmin
-          .from('profiles')
-          .upsert({
-            user_id: insertPayload.user_id,
-            display_name: displayName,
-            email: normalizedEmail,
-            email_address: normalizedEmail,
-          });
-      }
-
-      setTempPassword(tempPass);
-      setTempPasswordEmail(normalizedEmail);
+      setTempPassword(created.tempPassword || null);
+      setTempPasswordEmail(created.email || normalizedEmail);
       setMessage({
         type: 'success',
-        text: `A confirmation email with the invite link has been sent to ${normalizedEmail}.`,
+        text: created.message || `A confirmation email with the invite link has been sent to ${created.email || normalizedEmail}.`,
       });
 
       setNewAdmin({ email: '', displayName: '', role: Role.ADMIN_SCOREKEEPER });
@@ -302,7 +248,7 @@ const UserManager: React.FC<{ currentUser: User | null }> = ({ currentUser }) =>
       setError(null);
     } catch (err: any) {
       console.error('Create admin user error', err);
-      setError('Failed to add admin user.');
+      setError(err?.message || 'Failed to add admin user.');
     } finally {
       setAdding(false);
     }
@@ -623,8 +569,11 @@ const DivisionManager: React.FC = () => {
     }
     setSavingEditId(id);
     try {
+      const existingDivision = divisions.find((division) => division.id === id) || null;
+      const previousName = String(existingDivision?.name || '').trim();
+      const nextName = editDivisionName.trim();
       const payload = {
-        name: editDivisionName.trim(),
+        name: nextName,
         description: editDivisionDesc.trim() || null,
       };
       const { data, error } = await supabase
@@ -634,6 +583,43 @@ const DivisionManager: React.FC = () => {
         .select('id,name,description,season_id')
         .single();
       if (error) throw error;
+
+      const renamedDivision =
+        previousName &&
+        nextName &&
+        previousName.localeCompare(nextName, undefined, { sensitivity: 'accent' }) !== 0;
+
+      if (renamedDivision && selectedSeasonId) {
+        let teamUpdateError: any = null;
+
+        const runTeamRename = async (client: typeof supabase) => {
+          const result = await client
+            .from('teams')
+            .update({ division: nextName })
+            .eq('season_id', selectedSeasonId)
+            .ilike('division', previousName);
+          if (result.error) throw result.error;
+        };
+
+        try {
+          await runTeamRename(supabase);
+        } catch (err) {
+          teamUpdateError = err;
+          if (supabaseAdmin) {
+            try {
+              await runTeamRename(supabaseAdmin as any);
+              teamUpdateError = null;
+            } catch (adminErr) {
+              teamUpdateError = adminErr;
+            }
+          }
+        }
+
+        if (teamUpdateError) {
+          throw teamUpdateError;
+        }
+      }
+
       setDivisions((prev) =>
         prev.map((d) =>
           d.id === id
@@ -646,6 +632,7 @@ const DivisionManager: React.FC = () => {
             : d
         )
       );
+      setError(null);
       cancelEdit();
     } catch (err) {
       console.error('Update division error', err);
@@ -977,6 +964,43 @@ const SeasonsManager = () => {
     );
   };
 
+  const cleanupSeasonTeamReferencesForDelete = async (teamIds: string[]) => {
+    const ids = Array.from(new Set(teamIds.filter(Boolean)));
+    if (!ids.length) return;
+
+    const admin = requireAdminClient();
+    const { error: detachErr } = await admin
+      .from('players')
+      .update({
+        team_id: null,
+        is_captain: false,
+      })
+      .in('team_id', ids);
+    if (detachErr) throw detachErr;
+
+    const runOptionalDelete = async (table: string) => {
+      try {
+        const { error: deleteErr } = await admin.from(table).delete().in('team_id', ids);
+        if (deleteErr) throw deleteErr;
+      } catch (err: any) {
+        const code = String(err?.code || '').toUpperCase();
+        const message = String(err?.message || '').toLowerCase();
+        const isMissing =
+          code === '42P01' ||
+          code === '42703' ||
+          code === 'PGRST205' ||
+          message.includes('does not exist') ||
+          (message.includes('relation') && message.includes('does not exist')) ||
+          message.includes('could not find the table');
+        if (isMissing) return;
+        throw err;
+      }
+    };
+
+    await runOptionalDelete('game_guest_players');
+    await runOptionalDelete('notifications');
+  };
+
   const loadSeasons = async () => {
     try {
       // `registration_open` is a newer optional column. Fall back gracefully if it's not present yet.
@@ -1261,6 +1285,14 @@ const SeasonsManager = () => {
     try {
       setMutatingSeasonId(id);
       const admin = requireAdminClient();
+      const { data: seasonTeams, error: teamsErr } = await admin
+        .from('teams')
+        .select('id')
+        .eq('season_id', id);
+      if (teamsErr) throw teamsErr;
+
+      await cleanupSeasonTeamReferencesForDelete((seasonTeams || []).map((team: any) => String(team.id || '')));
+
       const { error: err } = await admin.from('seasons').delete().eq('id', id);
       if (err) throw err;
       loadSeasons();
@@ -3184,6 +3216,29 @@ const TeamsManager: React.FC<TeamsManagerProps> = ({
     }
   };
 
+  const cleanupTeamReferencesForDelete = async (teamIds: string[]) => {
+    const ids = Array.from(new Set(teamIds.filter(Boolean)));
+    if (!ids.length) return;
+
+    const client: any = supabaseAdmin || supabase;
+
+    const { error: detachErr } = await client
+      .from('players')
+      .update({
+        team_id: null,
+        is_captain: false,
+      })
+      .in('team_id', ids);
+    if (detachErr) throw detachErr;
+
+    await runOptionalMergeStep('game_guest_players', () =>
+      client.from('game_guest_players').delete().in('team_id', ids)
+    );
+    await runOptionalMergeStep('notifications', () =>
+      client.from('notifications').delete().in('team_id', ids)
+    );
+  };
+
   const openTeamMergeModal = async () => {
     setTeamMergeMessage(null);
     setPendingTeamMerge({
@@ -3647,26 +3702,6 @@ const TeamsManager: React.FC<TeamsManagerProps> = ({
 
   };
 
-  const detachPlayersFromTeam = async (teamId: string) => {
-    const run = async (client: any) =>
-      client
-        .from('players')
-        .update({
-          team_id: null,
-          is_captain: false,
-        })
-        .eq('team_id', teamId);
-
-    try {
-      const { error } = await run(supabase);
-      if (error) throw error;
-    } catch (err) {
-      if (!supabaseAdmin) throw err;
-      const { error } = await run(supabaseAdmin);
-      if (error) throw error;
-    }
-  };
-
   const openTeamDeleteConfirm = async (team: Team) => {
     setPendingTeamDelete({
       team,
@@ -3726,14 +3761,8 @@ const TeamsManager: React.FC<TeamsManagerProps> = ({
         return;
       }
 
-      if (playersCount > 0) {
-        await detachPlayersFromTeam(teamId);
-      }
-
+      await cleanupTeamReferencesForDelete([teamId]);
       const client: any = supabaseAdmin || supabase;
-      await runOptionalMergeStep('notifications', () =>
-        client.from('notifications').delete().eq('team_id', teamId)
-      );
       const { error: deleteErr } = await client.from('teams').delete().eq('id', teamId);
       if (deleteErr) throw deleteErr;
 
