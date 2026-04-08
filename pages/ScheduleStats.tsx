@@ -11,6 +11,32 @@ import { signTeamAssetUrl } from '../services/dataCache';
 
 type Tab = 'SCHEDULE' | 'SCORES' | 'STANDINGS' | 'TEAMS' | 'LEADERS';
 
+const getGameStartTimestamp = (value?: string | null, fallbackDate?: string | null, fallbackTime?: string | null) => {
+  const primary = String(value || '').trim();
+  if (primary) {
+    const parsed = new Date(primary);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.getTime();
+    }
+  }
+
+  const date = String(fallbackDate || '').trim();
+  if (!date) return null;
+
+  const time = String(fallbackTime || '').trim();
+  const normalizedTime = time
+    ? /^\d{2}:\d{2}:\d{2}$/.test(time)
+      ? time
+      : /^\d{2}:\d{2}$/.test(time)
+        ? `${time}:00`
+        : ''
+    : '00:00:00';
+
+  const composite = normalizedTime ? `${date}T${normalizedTime}` : date;
+  const parsed = new Date(composite);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
+};
+
 const ScheduleStats: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -38,6 +64,14 @@ const ScheduleStats: React.FC = () => {
   const [supportsPlayoffFilter, setSupportsPlayoffFilter] = useState(true);
   const [leadersDataKey, setLeadersDataKey] = useState('');
   const [importedLeadersDataKey, setImportedLeadersDataKey] = useState('');
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   // Load data from Supabase (public)
   useEffect(() => {
@@ -127,6 +161,8 @@ const ScheduleStats: React.FC = () => {
             status: (g.status || 'SCHEDULED').toString().toUpperCase(),
             youtubeLink: g.youtube_url || '',
             isPlayoff: !!g.is_playoff,
+            gameDateTime: g.game_datetime || null,
+            scheduledAtMs: getGameStartTimestamp(g.game_datetime, g.date, g.time),
           }));
           setGames(mappedGames);
         }
@@ -282,8 +318,13 @@ const ScheduleStats: React.FC = () => {
         teamFilter ? g.homeTeamId === teamFilter || g.awayTeamId === teamFilter : true
       )
       .filter(g => g.status === 'SCHEDULED')
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()), 
-  [divisionGames, teamFilter]);
+      .filter((g) => g.scheduledAtMs == null || g.scheduledAtMs >= nowMs)
+      .sort((a, b) => {
+        const aTime = typeof a.scheduledAtMs === 'number' ? a.scheduledAtMs : Number.MAX_SAFE_INTEGER;
+        const bTime = typeof b.scheduledAtMs === 'number' ? b.scheduledAtMs : Number.MAX_SAFE_INTEGER;
+        return aTime - bTime;
+      }), 
+  [divisionGames, nowMs, teamFilter]);
 
   const selectedTeamName = useMemo(
     () => scheduleTeamOptions.find((team) => team.id === teamFilter)?.name || 'Team',

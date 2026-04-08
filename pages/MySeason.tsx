@@ -105,6 +105,11 @@ type FocusGame = {
   myTeamLogo?: string;
 };
 
+type ScheduledFocusGame = FocusGame & {
+  rawDate: Date | null;
+  status: string;
+};
+
 type PlayerProfileOption = {
   id: string;
   seasonId?: string | null;
@@ -393,6 +398,7 @@ const MySeason: React.FC = () => {
   const [activeSeasonId, setActiveSeasonId] = useState<string | null>(null);
   const [activeSeasonLabel, setActiveSeasonLabel] = useState('');
   const [nextGame, setNextGame] = useState<FocusGame | null>(null);
+  const [scheduledFocusGames, setScheduledFocusGames] = useState<ScheduledFocusGame[]>([]);
   const [lastGame, setLastGame] = useState<FocusGame | null>(null);
   const [gameLogs, setGameLogs] = useState<GameLogRow[]>([]);
   const [careerStats, setCareerStats] = useState<CareerStatRow[]>([]);
@@ -434,6 +440,7 @@ const MySeason: React.FC = () => {
       return null;
     }
   });
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const displayJersey = useMemo(
     () => (hero?.jerseyNumber != null ? hero.jerseyNumber : lastJerseyNumber),
     [hero?.jerseyNumber, lastJerseyNumber]
@@ -460,6 +467,42 @@ const MySeason: React.FC = () => {
       };
     });
   }, [careerStats]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const withDates = scheduledFocusGames
+      .filter((game) => game.rawDate)
+      .sort((a, b) => (a.rawDate as Date).getTime() - (b.rawDate as Date).getTime());
+    const withoutDates = scheduledFocusGames.filter((game) => !game.rawDate);
+    const nextPick =
+      withDates.find((game) => (game.rawDate as Date).getTime() >= nowMs) || withoutDates[0] || null;
+
+    if (!nextPick) {
+      setNextGame(null);
+      return;
+    }
+
+    setNextGame({
+      id: nextPick.id,
+      date: nextPick.date,
+      time: nextPick.time,
+      location: nextPick.location,
+      opponentName: nextPick.opponentName,
+      opponentId: nextPick.opponentId,
+      opponentLogo: nextPick.opponentLogo,
+      myTeamId: nextPick.myTeamId,
+      myTeamLabel: nextPick.myTeamLabel,
+      isHome: nextPick.isHome,
+      homeScore: nextPick.homeScore,
+      awayScore: nextPick.awayScore,
+    });
+  }, [nowMs, scheduledFocusGames]);
 
   useEffect(() => {
     let active = true;
@@ -938,6 +981,7 @@ const MySeason: React.FC = () => {
         if (!availablePlayers.length) {
           setHero(null);
           setNextGame(null);
+          setScheduledFocusGames([]);
           setLastGame(null);
           setGameLogs([]);
           setMyTeamName('');
@@ -1479,6 +1523,7 @@ const MySeason: React.FC = () => {
         }
 
         setNextGame(null);
+        setScheduledFocusGames([]);
         setLastGame(null);
         setGameLogs([]);
         setSeasonRecord(null);
@@ -1549,7 +1594,6 @@ const MySeason: React.FC = () => {
               setSeasonRecord(null);
             }
 
-            const now = new Date();
             const mappedGames = (gameRows as any[]).map((g) => {
               const playerTeamId = effectiveTeamIds.includes(g.home_team_id)
                 ? g.home_team_id
@@ -1630,32 +1674,11 @@ const MySeason: React.FC = () => {
             });
 
             const scheduled = mappedGames.filter((g) => g.status === 'SCHEDULED');
-            const withDates = scheduled.filter((g) => g.rawDate);
-            const withoutDates = scheduled.filter((g) => !g.rawDate);
-            const upcoming = withDates
-              .filter((g) => (g.rawDate as Date).getTime() >= now.getTime())
-              .sort((a, b) => (a.rawDate as Date).getTime() - (b.rawDate as Date).getTime());
             const completed = mappedGames
               .filter((g) => g.status === 'COMPLETED')
               .sort((a, b) => (b.rawDate as Date).getTime() - (a.rawDate as Date).getTime());
 
-            const nextPick = upcoming[0] || withoutDates[0];
-            if (nextPick) {
-              setNextGame({
-                id: nextPick.id,
-                date: nextPick.date,
-                time: nextPick.time,
-                location: nextPick.location,
-                opponentName: nextPick.opponentName,
-                opponentId: nextPick.opponentId,
-                opponentLogo: nextPick.opponentLogo,
-                myTeamId: nextPick.myTeamId,
-                myTeamLabel: nextPick.myTeamLabel,
-                isHome: nextPick.isHome,
-                homeScore: nextPick.homeScore,
-                awayScore: nextPick.awayScore,
-              });
-            }
+            setScheduledFocusGames(scheduled as ScheduledFocusGame[]);
 
             if (completed[0]) {
               const c = completed[0];
