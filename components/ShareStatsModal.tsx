@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { getFontEmbedCSS, toBlob } from 'html-to-image';
 import { Copy, Download, ImagePlus, Share2 } from 'lucide-react';
 import { StatsShareCard, type ShareCardData } from './StatsShareCard';
-import { apiBaseUrl } from '../services/apiBase';
 import { supabase } from '../services/supabaseClient';
 
 export type ShareStatsModalProps = {
@@ -263,7 +262,7 @@ const resolveAvatarDataUrl = async (source: string, previewAvatar?: HTMLImageEle
   }
 
   try {
-    const proxyUrl = `${apiBaseUrl}/api/avatar-proxy?src=${encodeURIComponent(raw)}`;
+    const proxyUrl = `/api/avatar-proxy?src=${encodeURIComponent(raw)}`;
     const res = await fetch(proxyUrl, { cache: 'no-store' });
     if (res.ok) {
       const blob = await res.blob();
@@ -414,7 +413,7 @@ export const ShareStatsModal: React.FC<ShareStatsModalProps> = ({ open, onClose,
     const embedAvatar = async () => {
       const source = (data?.player?.avatarUrl || '').trim();
       if (!source) {
-        if (active) setEmbeddedAvatarUrl(exportAvatarFallback);
+        if (active) setEmbeddedAvatarUrl('/player-placeholder.svg');
         return;
       }
       if (source.startsWith('data:')) {
@@ -626,7 +625,7 @@ export const ShareStatsModal: React.FC<ShareStatsModalProps> = ({ open, onClose,
       if (!forced) return;
 
       const previewAvatar = previewCardRef.current?.querySelector('img[data-share-avatar="true"]') as HTMLImageElement | null;
-      const exportAvatar = exportRef.current?.querySelector('img[data-share-avatar="true"]') as HTMLImageElement | null;
+      const exportAvatar = exportRef.current?.querySelector('[data-share-avatar="true"]') as HTMLElement | null;
 
       if (previewAvatar && previewAvatar.src !== forced) {
         previewAvatar.src = forced;
@@ -635,11 +634,16 @@ export const ShareStatsModal: React.FC<ShareStatsModalProps> = ({ open, onClose,
         await waitForSingleImage(previewAvatar);
       }
 
-      if (exportAvatar && exportAvatar.src !== forced) {
-        exportAvatar.src = forced;
-      }
-      if (exportAvatar) {
+      if (exportAvatar instanceof HTMLImageElement) {
+        if (exportAvatar.src !== forced) {
+          exportAvatar.src = forced;
+        }
         await waitForSingleImage(exportAvatar);
+        return;
+      }
+
+      if (exportAvatar) {
+        exportAvatar.style.backgroundImage = `url("${forced}")`;
       }
     };
 

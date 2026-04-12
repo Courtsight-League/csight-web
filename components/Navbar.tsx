@@ -468,7 +468,7 @@ const Navbar: React.FC = () => {
   const memberLinks = [
     { name: 'My Season', path: '/my-season' },
     { name: 'My Team', path: myTeamPath },
-    { name: 'League Stats', path: '/stats' },
+    { name: 'Schedule & Stats', path: '/stats' },
   ];
 
   const playerLinks = [

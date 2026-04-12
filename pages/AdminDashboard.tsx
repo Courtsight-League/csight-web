@@ -53,6 +53,7 @@ import { createNotifications } from '../services/notificationService';
 import { normalizeJerseyNumberInput } from '../utils/jerseyNumber';
 import { buildPlayerPortalUrl, sendPlayerClaimEmail } from '../services/playerClaimEmailService';
 import { parseJerseyNumberValue } from '../utils/jerseyNumber';
+import { buildScheduleDateTimeIso, formatDisplayTime, getScheduleDateTimeParts } from '../utils/time';
 import RegistrationCapacityManager from '../components/RegistrationCapacityManager';
 import RegistrationWaiverManager from '../components/RegistrationWaiverManager';
 import AboutContentManager from '../components/AboutContentManager';
@@ -861,7 +862,7 @@ const SeasonsManager = () => {
 
   const requireAdminClient = () => {
     if (!supabaseAdmin) {
-      throw new Error('Admin backend is not configured or unreachable.');
+      throw new Error('Missing Supabase admin service key (VITE_SUPABASE_SERVICE_KEY).');
     }
     return supabaseAdmin;
   };
@@ -8490,7 +8491,11 @@ const BoxScoreEditor: React.FC<BoxScoreEditorProps> = ({ game, teams, onClose, o
           setSaveMessage('Select the winner for a forfeited game.');
           return;
         }
-        const gameDateTime = `${normalizedDate}T${normalizedTime || '00:00'}`;
+        const gameDateTime = buildScheduleDateTimeIso(normalizedDate, normalizedTime || '00:00');
+        if (!gameDateTime) {
+          setSaveMessage('Invalid game time.');
+          return;
+        }
         let persistedHomeScore = homeScore;
         let persistedAwayScore = awayScore;
         if (gameStatus === 'FORFEITED') {
@@ -10621,19 +10626,47 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({
       const teamDivisionUpdates = new Map<string, string>();
 
       const normalizeTimeForIso = (value: string) => {
-        return value.trim().replace(/(am|pm|hr|est|edt|cst|cdt|pst|pdt|gmt)$/i, '').trim();
+        const raw = value.trim();
+        if (!raw) return null;
+
+        const strippedTimezone = raw.replace(
+          /\s+\b(?:est|edt|cst|cdt|mst|mdt|pst|pdt|gmt|utc)\b$/i,
+          ''
+        ).trim();
+        const normalized = strippedTimezone.replace(/\./g, '').replace(/\s+/g, ' ');
+
+        const meridiemMatch = normalized.match(/^(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?\s*([AaPp][Mm])$/);
+        if (meridiemMatch) {
+          let hours = Number(meridiemMatch[1]);
+          const minutes = Number(meridiemMatch[2] || 0);
+          const seconds = Number(meridiemMatch[3] || 0);
+          const meridiem = meridiemMatch[4].toUpperCase();
+          if (hours < 1 || hours > 12 || minutes > 59 || seconds > 59) return null;
+          if (meridiem === 'AM') {
+            hours = hours === 12 ? 0 : hours;
+          } else {
+            hours = hours === 12 ? 12 : hours + 12;
+          }
+          return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        }
+
+        const twentyFourHourMatch = normalized.match(/^(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?$/);
+        if (twentyFourHourMatch) {
+          const hours = Number(twentyFourHourMatch[1]);
+          const minutes = Number(twentyFourHourMatch[2] || 0);
+          const seconds = Number(twentyFourHourMatch[3] || 0);
+          if (hours > 23 || minutes > 59 || seconds > 59) return null;
+          return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        }
+
+        return null;
       };
 
       const buildIso = (dateIso: string, value: string) => {
         if (!dateIso || !value.trim()) return '';
         const normalizedTime = normalizeTimeForIso(value);
-        const parsed = new Date(`${dateIso} ${normalizedTime}`);
-        if (!Number.isNaN(parsed.getTime())) {
-          const hours = String(parsed.getHours()).padStart(2, '0');
-          const minutes = String(parsed.getMinutes()).padStart(2, '0');
-          return `${dateIso}T${hours}:${minutes}:00+00`;
-        }
-        return `${dateIso}T00:00:00+00`;
+        if (!normalizedTime) return '';
+        return buildScheduleDateTimeIso(dateIso, normalizedTime);
       };
 
       const missingTeamNames = new Set<string>();
@@ -10698,6 +10731,10 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({
 
         const rawTimeValue = row.time.trim();
         const iso = buildIso(dateIso, rawTimeValue);
+        if (!iso) {
+          console.warn('skip invalid schedule time', row.time, row);
+          return;
+        }
         payload.push({
           season_id: seasonIdForSchedule,
           game_datetime: iso,
@@ -10880,11 +10917,9 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({
           let dateVal = '';
           let timeVal = '';
           if (dateTime) {
-            const d = new Date(dateTime);
-            if (!Number.isNaN(d.getTime())) {
-              dateVal = d.toISOString().slice(0, 10);
-              timeVal = d.toISOString().slice(11, 16);
-            }
+            const parts = getScheduleDateTimeParts(dateTime);
+            dateVal = parts.date;
+            timeVal = parts.time;
           }
           dateVal = dateVal || g.date || g.start_date || '';
           timeVal = timeVal || g.time || g.start_time || '';
@@ -11527,7 +11562,7 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({
                     >
                       <div className="text-sm text-gray-400 font-mono text-center md:text-left md:w-32">
                         <div className="text-white font-bold">{game.date}</div>
-                        <div>{game.time}</div>
+                        <div>{formatDisplayTime(game.time)}</div>
                         <div className="flex items-center justify-center gap-1 text-xs mt-1 md:justify-start">
                           <MapPin size={10} /> {game.location}
                         </div>
@@ -16503,6 +16538,13 @@ const AdminDashboard: React.FC = () => {
     loadOverview();
     loadUnpaidCount();
 
+    const channel = supabase
+      .channel('admin-overview-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'teams' }, () => loadOverview())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'games' }, () => loadOverview())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'seasons' }, () => loadOverview())
+      .subscribe();
+
     const handleFocus = () => {
       loadOverview();
       loadUnpaidCount();
@@ -16514,6 +16556,7 @@ const AdminDashboard: React.FC = () => {
     window.addEventListener('focus', handleFocus);
 
     return () => {
+      channel.unsubscribe();
       window.removeEventListener('focus', handleFocus);
       clearInterval(interval);
     };

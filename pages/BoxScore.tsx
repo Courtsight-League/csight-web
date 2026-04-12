@@ -6,6 +6,7 @@ import { createNotifications } from '../services/notificationService';
 import { getStoredUser } from '../services/authService';
 import LoadingOverlay from '../components/LoadingOverlay';
 import { Role, User } from '../types';
+import { formatDisplayTime, formatScheduleDateLabel } from '../utils/time';
 
 type TeamLite = {
   id: string;
@@ -573,19 +574,22 @@ const BoxScore: React.FC = () => {
 
   useEffect(() => {
     if (!gameId) return;
-    const interval = window.setInterval(() => {
-      void loadSocialData();
-    }, 5000);
-
-    const handleFocus = () => {
-      void loadSocialData();
-    };
-
-    window.addEventListener('focus', handleFocus);
-
+    const commentsChannel = supabase
+      .channel(`box-score-comments-${gameId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'box_score_comments',
+          filter: `game_id=eq.${gameId}`,
+        },
+        () => loadSocialData()
+      )
+      .subscribe();
     return () => {
-      clearInterval(interval);
-      window.removeEventListener('focus', handleFocus);
+      commentsChannel.unsubscribe();
+      supabase.removeChannel(commentsChannel);
     };
   }, [gameId, loadSocialData]);
 
@@ -883,20 +887,12 @@ const BoxScore: React.FC = () => {
     if (!game) return '';
     const raw = game.game_datetime || game.date;
     if (!raw) return '';
-    const parsed = new Date(raw);
-    if (Number.isNaN(parsed.getTime())) return '';
-    return parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    return formatScheduleDateLabel(raw, { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
   const formatTime = () => {
     if (!game) return '';
-    if (game.game_datetime) {
-      const parsed = new Date(game.game_datetime);
-      if (!Number.isNaN(parsed.getTime())) {
-        return parsed.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-      }
-    }
-    return game.time || '';
+    return formatDisplayTime(game.game_datetime || game.time);
   };
 
   const renderTeamTable = (team: TeamLite | null, teamStats: StatRow[]) => {

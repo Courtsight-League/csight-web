@@ -1,7 +1,8 @@
 import { GoogleGenAI } from "@google/genai";
 
-// Frontend no longer receives AI secrets. Move recap generation to the API if this is revived.
-const apiKey = '';
+// Initialize the Gemini API client
+// Note: In a production environment, ensure API_KEY is set in your .env file
+const apiKey = process.env.API_KEY || '';
 let ai: GoogleGenAI | null = null;
 
 if (apiKey) {

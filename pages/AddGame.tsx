@@ -5,6 +5,7 @@ import { supabase } from '../services/supabaseClient';
 import { getCurrentUser } from '../services/authService';
 import { Role, Team } from '../types';
 import { sortSeasonsNewestFirst } from '../utils/seasonOrdering';
+import { buildScheduleDateTimeIso, getScheduleDateTimeParts } from '../utils/time';
 
 type SeasonOption = { id: string; name: string; isCurrent: boolean };
 
@@ -211,9 +212,9 @@ const AddGame: React.FC = () => {
     const newTime = form.time;
     const hasDuplicate = existingGames.some((g) => {
       if (!g.game_datetime) return false;
-      const dt = new Date(g.game_datetime);
-      const existingDate = dt.toISOString().slice(0, 10);
-      const existingTime = dt.toISOString().slice(11, 16);
+      const parts = getScheduleDateTimeParts(g.game_datetime);
+      const existingDate = parts.date;
+      const existingTime = parts.time;
       const existingLoc = (g.location || '').trim().toLowerCase();
       return (
         existingDate === newDate &&
@@ -242,7 +243,10 @@ const AddGame: React.FC = () => {
         away_score: 0,
       };
 
-      const ts = form.time ? `${form.date}T${form.time}` : form.date;
+      const ts = buildScheduleDateTimeIso(form.date, form.time);
+      if (!ts) {
+        throw new Error('Invalid game date/time.');
+      }
       payload[gameFieldMap.dateTimeKey] = ts;
       if (gameFieldMap.statusKey) payload[gameFieldMap.statusKey] = 'scheduled';
 

@@ -8,34 +8,9 @@ import { supabase } from '../services/supabaseClient';
 import { PlayerStats } from '../types';
 import { sortSeasonsNewestFirst } from '../utils/seasonOrdering';
 import { signTeamAssetUrl } from '../services/dataCache';
+import { getScheduleDateTimeParts, getScheduleTimestamp } from '../utils/time';
 
 type Tab = 'SCHEDULE' | 'SCORES' | 'STANDINGS' | 'TEAMS' | 'LEADERS';
-
-const getGameStartTimestamp = (value?: string | null, fallbackDate?: string | null, fallbackTime?: string | null) => {
-  const primary = String(value || '').trim();
-  if (primary) {
-    const parsed = new Date(primary);
-    if (!Number.isNaN(parsed.getTime())) {
-      return parsed.getTime();
-    }
-  }
-
-  const date = String(fallbackDate || '').trim();
-  if (!date) return null;
-
-  const time = String(fallbackTime || '').trim();
-  const normalizedTime = time
-    ? /^\d{2}:\d{2}:\d{2}$/.test(time)
-      ? time
-      : /^\d{2}:\d{2}$/.test(time)
-        ? `${time}:00`
-        : ''
-    : '00:00:00';
-
-  const composite = normalizedTime ? `${date}T${normalizedTime}` : date;
-  const parsed = new Date(composite);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
-};
 
 const ScheduleStats: React.FC = () => {
   const navigate = useNavigate();
@@ -148,22 +123,25 @@ const ScheduleStats: React.FC = () => {
           .select('*')
           .order('game_datetime', { ascending: true });
         if (gameRows) {
-          const mappedGames = gameRows.map((g: any) => ({
-            id: g.id,
-            seasonId: g.season_id,
-            date: g.game_datetime ? new Date(g.game_datetime).toISOString().slice(0, 10) : g.date || '',
-            time: g.game_datetime ? new Date(g.game_datetime).toISOString().slice(11, 16) : g.time || '',
-            location: g.location || g.court_name || '',
-            homeTeamId: g.home_team_id,
-            awayTeamId: g.away_team_id,
-            homeScore: g.home_score ?? null,
-            awayScore: g.away_score ?? null,
-            status: (g.status || 'SCHEDULED').toString().toUpperCase(),
-            youtubeLink: g.youtube_url || '',
-            isPlayoff: !!g.is_playoff,
-            gameDateTime: g.game_datetime || null,
-            scheduledAtMs: getGameStartTimestamp(g.game_datetime, g.date, g.time),
-          }));
+          const mappedGames = gameRows.map((g: any) => {
+            const scheduleParts = g.game_datetime ? getScheduleDateTimeParts(g.game_datetime) : null;
+            return {
+              id: g.id,
+              seasonId: g.season_id,
+              date: scheduleParts?.date || g.date || '',
+              time: scheduleParts?.time || g.time || '',
+              location: g.location || g.court_name || '',
+              homeTeamId: g.home_team_id,
+              awayTeamId: g.away_team_id,
+              homeScore: g.home_score ?? null,
+              awayScore: g.away_score ?? null,
+              status: (g.status || 'SCHEDULED').toString().toUpperCase(),
+              youtubeLink: g.youtube_url || '',
+              isPlayoff: !!g.is_playoff,
+              gameDateTime: g.game_datetime || null,
+              scheduledAtMs: getScheduleTimestamp(g.game_datetime, g.date, g.time),
+            };
+          });
           setGames(mappedGames);
         }
 
@@ -1027,7 +1005,7 @@ const ScheduleStats: React.FC = () => {
                 <span className="w-2 h-2 bg-brand-lime rounded-full animate-pulse"></span>
                 Upcoming Games
               </h2>
-                {scheduledGames.length > 0 ? (
+               {scheduledGames.length > 0 ? (
                    <GameList games={scheduledGames} teams={seasonTeams} showScores={false} centerVs boxScoreReturnLabel="Stats" />
                ) : (
                  <div className="text-center py-12 text-gray-500 bg-brand-dark rounded-lg border border-white/5 border-dashed">

@@ -1786,7 +1786,20 @@ const Registration: React.FC = () => {
     const refresh = () => {
       void loadTeamsForSeason();
     };
-    const interval = window.setInterval(refresh, 5000);
+
+    const channel = supabase
+      .channel(`portal-register-live-${selectedSeasonId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'teams', filter: `season_id=eq.${selectedSeasonId}` },
+        refresh
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'divisions', filter: `season_id=eq.${selectedSeasonId}` },
+        refresh
+      )
+      .subscribe();
 
     const handleFocus = () => {
       refresh();
@@ -1802,7 +1815,7 @@ const Registration: React.FC = () => {
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
-      clearInterval(interval);
+      channel.unsubscribe();
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };

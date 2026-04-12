@@ -13,6 +13,7 @@ import {
 import { Game, RosterPlayer, Team } from '../types';
 import { Activity, ArrowLeft, ChevronDown, Crown, Gauge, Info, Shield, Target, TrendingDown, TrendingUp, Users, Zap } from 'lucide-react';
 import LoadingOverlay from '../components/LoadingOverlay';
+import { getScheduleDateTimeParts } from '../utils/time';
 
 const defaultBanner = '/default-team-banner.svg';
 
@@ -488,11 +489,9 @@ const MyTeam: React.FC = () => {
           let date = '';
           let time = '';
           if (g.game_datetime) {
-            const d = new Date(g.game_datetime);
-            if (!isNaN(d.getTime())) {
-              date = d.toISOString().slice(0, 10);
-              time = d.toISOString().slice(11, 16);
-            }
+            const parts = getScheduleDateTimeParts(g.game_datetime);
+            date = parts.date;
+            time = parts.time;
           }
           return {
             id: g.id,

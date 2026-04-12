@@ -2,6 +2,7 @@ import React from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Team, Game, PlayerStats } from '../types';
 import { Crown, PlayCircle } from 'lucide-react';
+import { formatDisplayTime } from '../utils/time';
 
 const fallbackLogo = (name: string) =>
   `https://ui-avatars.com/api/?background=111827&color=10b981&name=${encodeURIComponent(name || 'Team')}`;
@@ -215,7 +216,7 @@ export const GameList: React.FC<GameListProps> = ({
               }`}
             >
               <span className="text-white font-semibold">{formatDate(game.date)}</span>
-              <span className="font-semibold text-white text-[13px]">{game.time}</span>
+              <span className="font-semibold text-white text-[13px]">{formatDisplayTime(game.time)}</span>
               <span className="text-[11px] text-brand-grey">{game.location}</span>
             </div>
 

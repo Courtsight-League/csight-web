@@ -12,6 +12,11 @@ import { normalizeJerseyNumberInput } from '../utils/jerseyNumber';
 import ShareStatsModal from '../components/ShareStatsModal';
 import BadgeCylinderCarousel from '../components/BadgeCylinderCarousel';
 import { sortSeasonsNewestFirst } from '../utils/seasonOrdering';
+import {
+  formatDisplayTime,
+  formatScheduleDateLabel as formatOntarioScheduleDateLabel,
+  getScheduleDateTimeParts,
+} from '../utils/time';
 
 type HeroData = {
   seasonLabel: string;
@@ -316,35 +321,17 @@ const formatTrophyDate = (value?: string) => {
 };
 
 const getFixedScheduleDateTimeParts = (value?: string | null) => {
-  if (!value) return { date: '', time: '' };
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return { date: '', time: '' };
-  const iso = parsed.toISOString();
+  const parts = getScheduleDateTimeParts(value);
   return {
-    date: iso.slice(0, 10),
-    time: iso.slice(11, 16),
+    date: parts.date,
+    time: parts.time,
   };
 };
 
 const formatScheduleDateLabel = (
   value?: string | null,
   options: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' }
-) => {
-  if (!value) return '';
-  const dateOnlyMatch = String(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  const parsed = dateOnlyMatch
-    ? new Date(
-        Number(dateOnlyMatch[1]),
-        Number(dateOnlyMatch[2]) - 1,
-        Number(dateOnlyMatch[3]),
-        12,
-        0,
-        0
-      )
-    : new Date(value);
-  if (Number.isNaN(parsed.getTime())) return String(value || '');
-  return parsed.toLocaleDateString('en-US', options);
-};
+) => formatOntarioScheduleDateLabel(value, options);
 
 const getTierColor = (tier: TrophyTierName) => {
   switch (tier) {
@@ -1969,13 +1956,14 @@ const MySeason: React.FC = () => {
     return gameLogs.filter((log) => (log.myTeamId || '') === shareTeamId);
   }, [gameLogs, shareTeamId]);
 
-  const shareGameOptions = useMemo(
+        const shareGameOptions = useMemo(
     () =>
       shareGamesForTeam.map((game) => {
         const dateLabel = game.date
           ? formatScheduleDateLabel(game.date, { month: 'short', day: 'numeric' })
           : 'Date TBD';
-        const timeLabel = game.time ? ` @ ${game.time}` : '';
+        const formattedTime = formatDisplayTime(game.time);
+        const timeLabel = formattedTime ? ` @ ${formattedTime}` : '';
         return {
           id: game.id,
           label: `${dateLabel}${timeLabel} vs ${game.opponent}`,
@@ -2007,6 +1995,7 @@ const MySeason: React.FC = () => {
     }
     return selectedShareGame?.myTeamLabel || myTeamName || effectiveHero.teamLabel || 'TEAM';
   }, [shareTeamId, shareTeamOptions, selectedShareGame?.myTeamLabel, myTeamName, effectiveHero.teamLabel]);
+  const nextGameDisplayTime = formatDisplayTime(nextGame?.time);
 
   const shareSummaryStats = useMemo(() => {
     const sourceRows = shareGamesForTeam.filter((row) => row.pts != null || row.reb != null || row.ast != null || row.stl != null);
@@ -2595,7 +2584,10 @@ const MySeason: React.FC = () => {
                       </div>
                    </div>
                    <div className="bg-black/40 rounded p-3 text-center">
-                      <div className="text-white font-bold text-lg mb-1">{formatScheduleDateLabel(nextGame.date, { month: 'short', day: 'numeric' })} @ {nextGame.time}</div>
+                      <div className="text-white font-bold text-lg mb-1">
+                        {formatScheduleDateLabel(nextGame.date, { month: 'short', day: 'numeric' })}
+                        {nextGameDisplayTime ? ` @ ${nextGameDisplayTime}` : ''}
+                      </div>
                       <div className="text-gray-400 text-xs flex items-center justify-center gap-1">
                         <MapPin size={12} /> {nextGame.location}
                       </div>
@@ -2712,7 +2704,7 @@ const MySeason: React.FC = () => {
                   ? `${selectedShareGame.isHome ? selectedShareGame.awayScore : selectedShareGame.homeScore}`
                   : null,
               opponentLabel: selectedShareGame?.opponent || 'Opponent',
-              timeLabel: selectedShareGame?.time || null,
+              timeLabel: formatDisplayTime(selectedShareGame?.time) || null,
             },
             lastGameStats: {
               rows: [
