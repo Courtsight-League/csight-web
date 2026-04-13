@@ -53,7 +53,12 @@ import { createNotifications } from '../services/notificationService';
 import { normalizeJerseyNumberInput } from '../utils/jerseyNumber';
 import { buildPlayerPortalUrl, sendPlayerClaimEmail } from '../services/playerClaimEmailService';
 import { parseJerseyNumberValue } from '../utils/jerseyNumber';
-import { buildScheduleDateTimeIso, formatDisplayTime, getScheduleDateTimeParts } from '../utils/time';
+import {
+  buildScheduleDateTimeIso,
+  formatDisplayTime,
+  getScheduleDateTimeParts,
+  getScheduleTimestamp,
+} from '../utils/time';
 import RegistrationCapacityManager from '../components/RegistrationCapacityManager';
 import RegistrationWaiverManager from '../components/RegistrationWaiverManager';
 import AboutContentManager from '../components/AboutContentManager';
@@ -7323,6 +7328,7 @@ const BoxScoreEditor: React.FC<BoxScoreEditorProps> = ({ game, teams, onClose, o
   const [dragging, setDragging] = useState<{ team: 'home' | 'away'; index: number } | null>(null);
   const supportsSplitRebounds = useRef<boolean>(true);
   const [scoreLocked, setScoreLocked] = useState(true);
+  const shouldAutoSyncScoreRef = useRef(false);
   const [unlockedPlayerIds, setUnlockedPlayerIds] = useState<Set<string>>(new Set());
   const [guestPlayerIds, setGuestPlayerIds] = useState<Set<string>>(new Set());
   type GameGuestRecord = {
@@ -7923,6 +7929,12 @@ const BoxScoreEditor: React.FC<BoxScoreEditorProps> = ({ game, teams, onClose, o
   };
 
   useEffect(() => {
+    shouldAutoSyncScoreRef.current = false;
+    setHomeScore(game.homeScore ?? 0);
+    setAwayScore(game.awayScore ?? 0);
+  }, [game.awayScore, game.homeScore, game.id]);
+
+  useEffect(() => {
     if (gameStatus !== 'FORFEITED') return;
     const validWinner =
       forfeitWinnerTeamId === selectedHomeTeamId || forfeitWinnerTeamId === selectedAwayTeamId;
@@ -7992,6 +8004,7 @@ const BoxScoreEditor: React.FC<BoxScoreEditorProps> = ({ game, teams, onClose, o
   useEffect(() => {
     const loadStats = async () => {
       try {
+        shouldAutoSyncScoreRef.current = false;
         const { data, error } = await supabase
           .from('game_stats')
           .select('*')
@@ -8193,6 +8206,7 @@ const BoxScoreEditor: React.FC<BoxScoreEditorProps> = ({ game, teams, onClose, o
         next.delete(guestId);
         return next;
       });
+      shouldAutoSyncScoreRef.current = true;
       setPlayerStats((prev) => prev.filter((stat) => stat.playerId !== guestId));
       setGuestError(null);
       return true;
@@ -8210,6 +8224,7 @@ const BoxScoreEditor: React.FC<BoxScoreEditorProps> = ({ game, teams, onClose, o
   };
 
   const togglePlayerActive = (playerId: string) => {
+    shouldAutoSyncScoreRef.current = true;
     setActivePlayerIds((prev) => {
       const next = new Set(prev);
       if (next.has(playerId)) {
@@ -8319,6 +8334,7 @@ const BoxScoreEditor: React.FC<BoxScoreEditorProps> = ({ game, teams, onClose, o
 
   // Helper to update a specific stat
   const updateStat = (playerId: string, field: keyof PlayerGameStats, value: number) => {
+     shouldAutoSyncScoreRef.current = true;
      const existing = playerStats.find(s => s.playerId === playerId);
      const rawFields = new Set<keyof PlayerGameStats>([
        'twoPm',
@@ -8433,10 +8449,11 @@ const BoxScoreEditor: React.FC<BoxScoreEditorProps> = ({ game, teams, onClose, o
   };
 
   useEffect(() => {
+    if (!scoreLocked || !shouldAutoSyncScoreRef.current) return;
     const totals = playerStats.reduce(
       (acc, stat) => {
+        if (!activePlayerIds.has(stat.playerId) || !stat.teamId) return acc;
         const pts = stat.pts ?? 0;
-        if (!stat.teamId) return acc;
         if (stat.teamId === selectedHomeTeamId) {
           acc.home += pts;
         } else if (stat.teamId === selectedAwayTeamId) {
@@ -8448,7 +8465,7 @@ const BoxScoreEditor: React.FC<BoxScoreEditorProps> = ({ game, teams, onClose, o
     );
     setHomeScore(totals.home);
     setAwayScore(totals.away);
-  }, [playerStats, selectedHomeTeamId, selectedAwayTeamId]);
+  }, [activePlayerIds, playerStats, scoreLocked, selectedHomeTeamId, selectedAwayTeamId]);
 
   const reorderList = <T,>(list: T[], from: number, to: number) => {
     const next = [...list];
@@ -10953,7 +10970,8 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({
               );
             });
       filteredByDivision.sort((a, b) => {
-        const toComparable = (d: string, t: string) => new Date(`${d || '1900-01-01'}T${t || '00:00'}`).getTime();
+        const toComparable = (d: string, t: string) =>
+          getScheduleTimestamp(null, d || '1900-01-01', t || '00:00') || 0;
         return toComparable(b.date, b.time) - toComparable(a.date, a.time);
       });
       const fallbackGames = GAMES.filter((g) => {
@@ -12056,20 +12074,23 @@ const TeamTrophiesManager = () => {
           )
           .eq('season_id', selectedSeasonId);
         if (gameErr) throw gameErr;
-        const mappedGames: Game[] = (data || []).map((g: any) => ({
-          id: g.id,
-          seasonId: g.season_id || selectedSeasonId,
-          date: g.game_datetime || '',
-          time: '',
-          location: g.location || '',
-          homeTeamId: g.home_team_id,
-          awayTeamId: g.away_team_id,
-          homeScore: g.home_score ?? undefined,
-          awayScore: g.away_score ?? undefined,
-          status: (g.status || 'SCHEDULED').toString().toUpperCase(),
-          youtubeLink: undefined,
-          isPlayoff: false,
-        }));
+        const mappedGames: Game[] = (data || []).map((g: any) => {
+          const scheduleParts = getScheduleDateTimeParts(g.game_datetime);
+          return {
+            id: g.id,
+            seasonId: g.season_id || selectedSeasonId,
+            date: scheduleParts.date || '',
+            time: scheduleParts.time || '',
+            location: g.location || '',
+            homeTeamId: g.home_team_id,
+            awayTeamId: g.away_team_id,
+            homeScore: g.home_score ?? undefined,
+            awayScore: g.away_score ?? undefined,
+            status: (g.status || 'SCHEDULED').toString().toUpperCase(),
+            youtubeLink: undefined,
+            isPlayoff: false,
+          };
+        });
         setGames(mappedGames);
         setError(null);
       } catch (err) {
@@ -14838,20 +14859,23 @@ const PhotoManager = () => {
           setGamesError(null);
           const { data, error } = await supabase.from('games').select('*').order('game_datetime', { ascending: false });
           if (error) throw error;
-          const mapped: Game[] = (data || []).map((g: any) => ({
-            id: g.id,
-            seasonId: g.season_id,
-            date: g.date || g.game_datetime || g.start_date || '',
-            time: g.time || g.start_time || '',
-            location: g.location || '',
-            homeTeamId: g.home_team_id,
-            awayTeamId: g.away_team_id,
-            homeScore: g.home_score ?? 0,
-            awayScore: g.away_score ?? 0,
-            status: (g.status || 'SCHEDULED').toString().toUpperCase(),
-            youtubeLink: g.youtube_url || g.youtube_link || g.youtube || '',
-            isPlayoff: !!g.is_playoff,
-          }));
+          const mapped: Game[] = (data || []).map((g: any) => {
+            const scheduleParts = getScheduleDateTimeParts(g.game_datetime);
+            return {
+              id: g.id,
+              seasonId: g.season_id,
+              date: scheduleParts.date || g.date || g.start_date || '',
+              time: scheduleParts.time || g.time || g.start_time || '',
+              location: g.location || '',
+              homeTeamId: g.home_team_id,
+              awayTeamId: g.away_team_id,
+              homeScore: g.home_score ?? 0,
+              awayScore: g.away_score ?? 0,
+              status: (g.status || 'SCHEDULED').toString().toUpperCase(),
+              youtubeLink: g.youtube_url || g.youtube_link || g.youtube || '',
+              isPlayoff: !!g.is_playoff,
+            };
+          });
           setGames(mapped);
         } catch (err) {
           console.error('Load games for photos error', err);

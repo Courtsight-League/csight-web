@@ -269,8 +269,12 @@ const BoxScore: React.FC = () => {
             row.defensive_rebounds ?? row.dreb ?? row.def_rebounds ?? null;
           const hasSplit =
             orebRaw !== null || drebRaw !== null;
-          const baseReb = row.rebounds ?? row.reb ?? 0;
-          const reb = hasSplit ? parseNumber(orebRaw) + parseNumber(drebRaw) : parseNumber(baseReb);
+          const baseReb = parseNumber(row.rebounds ?? row.reb ?? 0);
+          const splitReb = parseNumber(orebRaw) + parseNumber(drebRaw);
+          const reb =
+            hasSplit && (splitReb > 0 || baseReb === 0)
+              ? splitReb
+              : baseReb;
           return {
             id: row.id?.toString() || `${row.game_id}-${row.player_id}`,
             playerId: row.player_id,

@@ -6,6 +6,7 @@ import { DEFAULT_PLAYER_AVATAR } from '../constants';
 import LoadingOverlay from '../components/LoadingOverlay';
 import BadgeCylinderCarousel from '../components/BadgeCylinderCarousel';
 import { ArrowLeft, Crown } from 'lucide-react';
+import { formatScheduleDateLabel, getScheduleDateTimeParts, getScheduleTimestamp } from '../utils/time';
 
 type PlayerRow = {
   id: string;
@@ -314,13 +315,13 @@ const formatPercentageCompact = (made: number | null, attempts: number | null) =
 
 const formatLogDate = (value?: string) => {
   if (!value) return '-';
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return '-';
-  return parsed.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  return (
+    formatScheduleDateLabel(value, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    }) || '-'
+  );
 };
 
 const resolveSeasonLabel = (
@@ -1066,7 +1067,9 @@ useEffect(() => {
             const steals = toNumber(row.steals);
             const blocks = toNumber(row.blocks);
             const dateValue = row.game_id ? statDateByGameId.get(row.game_id) || row.created_at || null : row.created_at || null;
-            const timestamp = dateValue ? new Date(dateValue).getTime() : Number.MAX_SAFE_INTEGER;
+            const timestamp = dateValue
+              ? getScheduleTimestamp(dateValue) ?? new Date(dateValue).getTime()
+              : Number.MAX_SAFE_INTEGER;
             return {
               points,
               assists,
@@ -1230,9 +1233,12 @@ useEffect(() => {
               teamIdKey && teamLookup.get(teamIdKey)
                 ? teamLookup.get(teamIdKey)!.name
                 : fallbackRowTeamLabel;
+            const scheduleParts = game?.game_datetime
+              ? getScheduleDateTimeParts(game.game_datetime)
+              : null;
             const baseEntry: GameLogRow = {
               id: row.game_id || `fallback-${playerId}-${rowIndex}`,
-              date: game?.game_datetime || row?.created_at || '',
+              date: scheduleParts?.date || game?.game_datetime || row?.created_at || '',
               opponent: 'Opponent',
               opponentId: null,
               myTeamId: teamIdKey,
@@ -1312,7 +1318,11 @@ useEffect(() => {
             };
           })
           .filter((entry): entry is GameLogRow => Boolean(entry))
-          .sort((a, b) => (new Date(b.date).getTime() || 0) - (new Date(a.date).getTime() || 0));
+          .sort(
+            (a, b) =>
+              ((getScheduleTimestamp(b.date) ?? new Date(b.date).getTime()) || 0) -
+              ((getScheduleTimestamp(a.date) ?? new Date(a.date).getTime()) || 0)
+          );
         setGameLogs(logEntries);
       } catch (err) {
         console.error('player profile load error', err);

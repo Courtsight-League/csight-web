@@ -2,7 +2,7 @@ import React from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Team, Game, PlayerStats } from '../types';
 import { Crown, PlayCircle } from 'lucide-react';
-import { formatDisplayTime } from '../utils/time';
+import { formatDisplayTime, formatScheduleDateLabel } from '../utils/time';
 
 const fallbackLogo = (name: string) =>
   `https://ui-avatars.com/api/?background=111827&color=10b981&name=${encodeURIComponent(name || 'Team')}`;
@@ -118,20 +118,11 @@ export const GameList: React.FC<GameListProps> = ({
   const getTeam = (id: string) => teams.find(t => t.id === id);
 
   const formatDate = (dateStr: string) => {
-    const dateOnlyMatch = String(dateStr || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    const date = dateOnlyMatch
-      // Treat YYYY-MM-DD as a calendar date, not UTC midnight, to avoid timezone day-shift.
-      ? new Date(
-          Number(dateOnlyMatch[1]),
-          Number(dateOnlyMatch[2]) - 1,
-          Number(dateOnlyMatch[3]),
-          12,
-          0,
-          0
-        )
-      : new Date(dateStr);
-    if (Number.isNaN(date.getTime())) return dateStr || '';
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', weekday: 'short' });
+    return (
+      formatScheduleDateLabel(dateStr, { month: 'short', day: 'numeric', weekday: 'short' }) ||
+      dateStr ||
+      ''
+    );
   };
   const historyMode = variant === 'history';
 
